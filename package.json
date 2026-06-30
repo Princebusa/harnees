@@ -1,0 +1,23 @@
+{
+  "name": "harnees",
+  "module": "index.ts",
+  "type": "module",
+  "private": true,
+  "bin": {
+    "harnees": "./index.ts"
+  },
+  "scripts": {
+    "start": "bun run index.ts",
+    "agent": "bun run index.ts run",
+    "chat": "bun run index.ts chat"
+  },
+  "devDependencies": {
+    "@types/bun": "latest"
+  },
+  "peerDependencies": {
+    "typescript": "^5"
+  },
+  "dependencies": {
+    "commander": "^15.0.0"
+  }
+}
