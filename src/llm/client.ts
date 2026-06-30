@@ -3,7 +3,7 @@ import { resolveChatUrl, type Provider } from "./providers.ts";
 
 interface ChatOptions {
   messages: Message[];
-  tools: Tool[];
+  tools?: Tool[];
   model: string;
   apiKey: string;
   baseUrl: string;
@@ -93,13 +93,18 @@ function buildRequestBody(
   options: ChatOptions,
   stream: boolean,
 ): Record<string, unknown> {
-  return {
+  const body: Record<string, unknown> = {
     model: options.model,
     messages: toOpenAIMessages(options.messages),
-    tools: toOpenAITools(options.tools),
-    tool_choice: "auto",
     stream,
   };
+
+  if (options.tools?.length) {
+    body.tools = toOpenAITools(options.tools);
+    body.tool_choice = "auto";
+  }
+
+  return body;
 }
 
 function parseToolCalls(calls: OpenAIToolCall[]): ToolCall[] {

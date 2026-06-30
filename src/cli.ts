@@ -1,3 +1,4 @@
+import * as p from "@clack/prompts";
 import { Command } from "commander";
 import { resolve } from "node:path";
 import * as readline from "node:readline/promises";
@@ -10,9 +11,10 @@ import {
   PROVIDERS,
   resolveApiKey,
 } from "./llm/providers.ts";
+import { runPlainChat } from "./modes/plain.ts";
 import { log } from "./utils/logger.ts";
 
-interface AgentCommandOptions {
+export interface AgentCommandOptions {
   model?: string;
   maxIterations: string;
   cwd: string;
@@ -21,6 +23,11 @@ interface AgentCommandOptions {
   provider: string;
   noStream?: boolean;
 }
+
+const SUBCOMMANDS = new Set(["run", "chat", "models", "help"]);
+const HELP_FLAGS = new Set(["-h", "--help", "-V", "--version"]);
+
+type AppMode = "agent" | "chat" | "plain";
 
 function createStreamHandler(prefix: string) {
   let started = false;
@@ -58,6 +65,171 @@ function sharedAgentOptions(command: Command): Command {
     .option("--no-stream", "Disable token streaming (wait for full response)");
 }
 
+function parseSharedOptions(args: string[]): AgentCommandOptions {
+  const cmd = new Command();
+  sharedAgentOptions(cmd);
+  cmd.parse(args, { from: "user" });
+  return cmd.opts() as AgentCommandOptions;
+}
+
+function shouldShowInteractiveMenu(args: string[]): boolean {
+  if (args.length === 0) return true;
+  if (args.some((arg) => SUBCOMMANDS.has(arg) || HELP_FLAGS.has(arg))) return false;
+  return args.every((arg) => arg.startsWith("-"));
+}
+
+async function runAgentTask(opts: AgentCommandOptions, task: string): Promise<void> {
+  const cwd = resolve(opts.cwd);
+  const { provider, model, baseUrl, apiKey } = resolveAgentConfig(opts);
+
+  log.info(`Provider: ${provider.label}`);
+  log.info(`Workspace: ${cwd}`);
+  log.info(`Model: ${model}`);
+
+  const stream = !opts.noStream;
+  const onToken = stream ? createStreamHandler("\x1b[36magent\x1b[0m ") : undefined;
+
+  const result = await runAgentLoop({
+    task,
+    cwd,
+    model,
+    apiKey,
+    baseUrl,
+    provider,
+    maxIterations: Number.parseInt(opts.maxIterations, 10),
+    stream,
+    onToken,
+  });
+
+  log.success(`Done in ${result.iterations} iteration(s)`);
+  if (!stream) {
+    console.log("\n" + result.finalMessage);
+  }
+}
+
+async function runChatSession(opts: AgentCommandOptions): Promise<void> {
+  const cwd = resolve(opts.cwd);
+  const { provider, model, baseUrl, apiKey } = resolveAgentConfig(opts);
+  const rl = readline.createInterface({ input, output });
+
+  log.info(`Provider: ${provider.label}`);
+  log.info(`Chat mode — workspace: ${cwd}`);
+  log.info(`Model: ${model}`);
+  log.info(`Type 'exit' or Ctrl+C to quit\n`);
+
+  try {
+    while (true) {
+      const task = await rl.question("you> ");
+      const trimmed = task.trim();
+
+      if (!trimmed) continue;
+      if (trimmed.toLowerCase() === "exit") break;
+
+      try {
+        const stream = !opts.noStream;
+        const onToken = stream ? createStreamHandler("\nagent> ") : undefined;
+
+        const result = await runAgentLoop({
+          task: trimmed,
+          cwd,
+          model,
+          apiKey,
+          baseUrl,
+          provider,
+          maxIterations: Number.parseInt(opts.maxIterations, 10),
+          stream,
+          onToken,
+        });
+
+        if (!stream) {
+          console.log("\nagent>", result.finalMessage, "\n");
+        } else {
+          console.log();
+        }
+      } catch (error) {
+        log.error(error instanceof Error ? error.message : String(error));
+      }
+    }
+  } finally {
+    rl.close();
+  }
+}
+
+async function runPlainSession(opts: AgentCommandOptions): Promise<void> {
+  const { provider, model, baseUrl, apiKey } = resolveAgentConfig(opts);
+  const stream = !opts.noStream;
+  const onToken = stream ? createStreamHandler("\nassistant> ") : undefined;
+
+  await runPlainChat({
+    model,
+    apiKey,
+    baseUrl,
+    provider,
+    stream,
+    onToken,
+  });
+}
+
+async function runInteractiveMenu(opts: AgentCommandOptions): Promise<void> {
+  p.intro("harnees");
+
+  const mode = await p.select<AppMode>({
+    message: "What would you like to do?",
+    options: [
+      {
+        value: "agent",
+        label: "Agent mode",
+        hint: "run a single coding task with tools",
+      },
+      {
+        value: "chat",
+        label: "Chat mode",
+        hint: "multi-turn agent session with tools",
+      },
+      {
+        value: "plain",
+        label: "Plain mode",
+        hint: "direct LLM chat, no tools",
+      },
+    ],
+  });
+
+  if (p.isCancel(mode)) {
+    p.cancel("Goodbye.");
+    process.exit(0);
+  }
+
+  p.outro(`Starting ${mode} mode`);
+
+  try {
+    switch (mode) {
+      case "agent": {
+        const task = await p.text({
+          message: "What should the agent do?",
+          placeholder: "e.g. add a README with setup instructions",
+        });
+
+        if (p.isCancel(task)) {
+          p.cancel("Goodbye.");
+          process.exit(0);
+        }
+
+        await runAgentTask(opts, task);
+        break;
+      }
+      case "chat":
+        await runChatSession(opts);
+        break;
+      case "plain":
+        await runPlainSession(opts);
+        break;
+    }
+  } catch (error) {
+    log.error(error instanceof Error ? error.message : String(error));
+    process.exitCode = 1;
+  }
+}
+
 function createProgram(): Command {
   const program = new Command();
 
@@ -85,33 +257,8 @@ function createProgram(): Command {
       .description("Run the agent on a single task")
       .argument("<task>", "Task for the agent to complete"),
   ).action(async (task: string, opts: AgentCommandOptions) => {
-    const cwd = resolve(opts.cwd);
-    const { provider, model, baseUrl, apiKey } = resolveAgentConfig(opts);
-
-    log.info(`Provider: ${provider.label}`);
-    log.info(`Workspace: ${cwd}`);
-    log.info(`Model: ${model}`);
-
     try {
-      const stream = !opts.noStream;
-      const onToken = stream ? createStreamHandler("\x1b[36magent\x1b[0m ") : undefined;
-
-      const result = await runAgentLoop({
-        task,
-        cwd,
-        model,
-        apiKey,
-        baseUrl,
-        provider,
-        maxIterations: Number.parseInt(opts.maxIterations, 10),
-        stream,
-        onToken,
-      });
-
-      log.success(`Done in ${result.iterations} iteration(s)`);
-      if (!stream) {
-        console.log("\n" + result.finalMessage);
-      }
+      await runAgentTask(opts, task);
     } catch (error) {
       log.error(error instanceof Error ? error.message : String(error));
       process.exitCode = 1;
@@ -121,56 +268,36 @@ function createProgram(): Command {
   sharedAgentOptions(
     program.command("chat").description("Interactive multi-turn agent session"),
   ).action(async (opts: AgentCommandOptions) => {
-    const cwd = resolve(opts.cwd);
-    const { provider, model, baseUrl, apiKey } = resolveAgentConfig(opts);
-    const rl = readline.createInterface({ input, output });
-
-    log.info(`Provider: ${provider.label}`);
-    log.info(`Interactive mode — workspace: ${cwd}`);
-    log.info(`Model: ${model}`);
-    log.info(`Type 'exit' or Ctrl+C to quit\n`);
-
     try {
-      while (true) {
-        const task = await rl.question("you> ");
-        const trimmed = task.trim();
+      await runChatSession(opts);
+    } catch (error) {
+      log.error(error instanceof Error ? error.message : String(error));
+      process.exitCode = 1;
+    }
+  });
 
-        if (!trimmed) continue;
-        if (trimmed.toLowerCase() === "exit") break;
-
-        try {
-          const stream = !opts.noStream;
-          const onToken = stream ? createStreamHandler("\nagent> ") : undefined;
-
-          const result = await runAgentLoop({
-            task: trimmed,
-            cwd,
-            model,
-            apiKey,
-            baseUrl,
-            provider,
-            maxIterations: Number.parseInt(opts.maxIterations, 10),
-            stream,
-            onToken,
-          });
-
-          if (!stream) {
-            console.log("\nagent>", result.finalMessage, "\n");
-          } else {
-            console.log();
-          }
-        } catch (error) {
-          log.error(error instanceof Error ? error.message : String(error));
-        }
-      }
-    } finally {
-      rl.close();
+  sharedAgentOptions(
+    program.command("plain").description("Interactive LLM chat without tools"),
+  ).action(async (opts: AgentCommandOptions) => {
+    try {
+      await runPlainSession(opts);
+    } catch (error) {
+      log.error(error instanceof Error ? error.message : String(error));
+      process.exitCode = 1;
     }
   });
 
   return program;
 }
 
-export function runCli(argv: string[] = process.argv): void {
+export async function runCli(argv: string[] = process.argv): Promise<void> {
+  const args = argv.slice(2);
+
+  if (shouldShowInteractiveMenu(args)) {
+    const opts = parseSharedOptions(args);
+    await runInteractiveMenu(opts);
+    return;
+  }
+
   createProgram().parse(argv);
 }
