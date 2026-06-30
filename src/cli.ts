@@ -6,6 +6,7 @@ import { runAgentLoop } from "./agent/loop.ts";
 import {
   DEFAULT_PROVIDER,
   getProvider,
+  OPENROUTER_FREE_MODELS,
   PROVIDERS,
   resolveApiKey,
 } from "./llm/providers.ts";
@@ -18,6 +19,19 @@ interface AgentCommandOptions {
   apiKey?: string;
   baseUrl?: string;
   provider: string;
+  noStream?: boolean;
+}
+
+function createStreamHandler(prefix: string) {
+  let started = false;
+
+  return (chunk: string) => {
+    if (!started) {
+      log.write(prefix);
+      started = true;
+    }
+    log.write(chunk);
+  };
 }
 
 function resolveAgentConfig(opts: AgentCommandOptions) {
@@ -40,7 +54,8 @@ function sharedAgentOptions(command: Command): Command {
     .option("-i, --max-iterations <n>", "Max agent loop iterations", "25")
     .option("-c, --cwd <path>", "Workspace directory", process.cwd())
     .option("--api-key <key>", "API key (or set provider env var, e.g. OPENROUTER_API_KEY)")
-    .option("--base-url <url>", "Override API base URL");
+    .option("--base-url <url>", "Override API base URL")
+    .option("--no-stream", "Disable token streaming (wait for full response)");
 }
 
 function createProgram(): Command {
@@ -78,6 +93,9 @@ function createProgram(): Command {
     log.info(`Model: ${model}`);
 
     try {
+      const stream = !opts.noStream;
+      const onToken = stream ? createStreamHandler("\x1b[36magent\x1b[0m ") : undefined;
+
       const result = await runAgentLoop({
         task,
         cwd,
@@ -86,10 +104,14 @@ function createProgram(): Command {
         baseUrl,
         provider,
         maxIterations: Number.parseInt(opts.maxIterations, 10),
+        stream,
+        onToken,
       });
 
       log.success(`Done in ${result.iterations} iteration(s)`);
-      console.log("\n" + result.finalMessage);
+      if (!stream) {
+        console.log("\n" + result.finalMessage);
+      }
     } catch (error) {
       log.error(error instanceof Error ? error.message : String(error));
       process.exitCode = 1;
@@ -117,6 +139,9 @@ function createProgram(): Command {
         if (trimmed.toLowerCase() === "exit") break;
 
         try {
+          const stream = !opts.noStream;
+          const onToken = stream ? createStreamHandler("\nagent> ") : undefined;
+
           const result = await runAgentLoop({
             task: trimmed,
             cwd,
@@ -125,9 +150,15 @@ function createProgram(): Command {
             baseUrl,
             provider,
             maxIterations: Number.parseInt(opts.maxIterations, 10),
+            stream,
+            onToken,
           });
 
-          console.log("\nagent>", result.finalMessage, "\n");
+          if (!stream) {
+            console.log("\nagent>", result.finalMessage, "\n");
+          } else {
+            console.log();
+          }
         } catch (error) {
           log.error(error instanceof Error ? error.message : String(error));
         }

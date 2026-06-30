@@ -50,6 +50,8 @@ export interface AgentLoopOptions {
   onIteration?: (iteration: number, message: Message) => void;
   onToolCall?: (name: string, args: Record<string, unknown>) => void;
   onToolResult?: (name: string, result: string) => void;
+  onToken?: (chunk: string) => void;
+  stream?: boolean;
 }
 
 export interface AgentLoopResult {

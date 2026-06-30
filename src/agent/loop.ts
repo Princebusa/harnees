@@ -28,6 +28,8 @@ export async function runAgentLoop(
     onIteration,
     onToolCall,
     onToolResult,
+    onToken,
+    stream = true,
   } = options;
 
   const tools = createTools(cwd);
@@ -41,6 +43,7 @@ export async function runAgentLoop(
   for (let iteration = 1; iteration <= maxIterations; iteration++) {
     log.dim(`--- iteration ${iteration}/${maxIterations} ---`);
 
+    let streamed = false;
     const response = await chat({
       messages,
       tools,
@@ -48,6 +51,12 @@ export async function runAgentLoop(
       apiKey,
       baseUrl,
       provider,
+      onToken: stream
+        ? (chunk) => {
+            streamed = true;
+            onToken?.(chunk);
+          }
+        : undefined,
     });
 
     const assistantMessage: Message = {
@@ -59,7 +68,9 @@ export async function runAgentLoop(
     messages.push(assistantMessage);
     onIteration?.(iteration, assistantMessage);
 
-    if (response.content) {
+    if (streamed) {
+      log.write("\n");
+    } else if (response.content) {
       log.agent(response.content);
     }
 

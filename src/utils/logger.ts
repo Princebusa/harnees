@@ -11,6 +11,7 @@ export const log = {
   error: (msg: string) => console.error(red("✗"), msg),
   dim: (msg: string) => console.log(dim(msg)),
   agent: (msg: string) => console.log(cyan("agent"), msg),
+  write: (msg: string) => process.stdout.write(msg),
   tool: (name: string, detail?: string) =>
     console.log(yellow("tool"), name, detail ? dim(detail) : ""),
 };
