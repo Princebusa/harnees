@@ -1,4 +1,4 @@
-import { chat } from "../llm/client.ts";
+import { chat } from "../providers/client.ts";
 import { createTools, getToolMap } from "../tools/index.ts";
 import { log } from "../utils/logger.ts";
 import type { AgentLoopOptions, AgentLoopResult, Message } from "./types.ts";
@@ -22,7 +22,7 @@ export async function runAgentLoop(
     maxIterations,
     model,
     apiKey,
-    baseUrl,
+    apiUrl,
     provider,
     systemPrompt = DEFAULT_SYSTEM_PROMPT,
     onIteration,
@@ -49,7 +49,7 @@ export async function runAgentLoop(
       tools,
       model,
       apiKey,
-      baseUrl,
+      apiUrl,
       provider,
       onToken: stream
         ? (chunk) => {

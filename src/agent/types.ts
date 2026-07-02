@@ -1,4 +1,4 @@
-import type { Provider } from "../llm/providers.ts";
+import type { Provider } from "../providers/index.ts";
 
 export type Role = "system" | "user" | "assistant" | "tool";
 
@@ -44,7 +44,7 @@ export interface AgentLoopOptions {
   maxIterations: number;
   model: string;
   apiKey: string;
-  baseUrl: string;
+  apiUrl: string;
   provider?: Provider;
   systemPrompt?: string;
   onIteration?: (iteration: number, message: Message) => void;

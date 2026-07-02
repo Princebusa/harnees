@@ -6,11 +6,10 @@ import { stdin as input, stdout as output } from "node:process";
 import { runAgentLoop } from "./agent/loop.ts";
 import {
   DEFAULT_PROVIDER,
-  getProvider,
   OPENROUTER_FREE_MODELS,
   PROVIDERS,
-  resolveApiKey,
-} from "./llm/providers.ts";
+  resolveProviderConfig,
+} from "./providers/index.ts";
 import { runPlainChat } from "./modes/plain.ts";
 import { log } from "./utils/logger.ts";
 
@@ -20,6 +19,7 @@ export interface AgentCommandOptions {
   cwd: string;
   apiKey?: string;
   baseUrl?: string;
+  endpoint?: string;
   provider: string;
   noStream?: boolean;
 }
@@ -42,12 +42,12 @@ function createStreamHandler(prefix: string) {
 }
 
 function resolveAgentConfig(opts: AgentCommandOptions) {
-  const provider = getProvider(opts.provider);
-  const model = opts.model ?? provider.defaultModel;
-  const baseUrl = opts.baseUrl ?? provider.baseUrl;
-  const apiKey = resolveApiKey(provider, opts.apiKey);
-
-  return { provider, model, baseUrl, apiKey };
+  return resolveProviderConfig(opts.provider, {
+    model: opts.model,
+    baseUrl: opts.baseUrl,
+    endpoint: opts.endpoint,
+    apiKey: opts.apiKey,
+  });
 }
 
 function sharedAgentOptions(command: Command): Command {
@@ -61,7 +61,11 @@ function sharedAgentOptions(command: Command): Command {
     .option("-i, --max-iterations <n>", "Max agent loop iterations", "25")
     .option("-c, --cwd <path>", "Workspace directory", process.cwd())
     .option("--api-key <key>", "API key (or set provider env var, e.g. OPENROUTER_API_KEY)")
-    .option("--base-url <url>", "Override API base URL")
+    .option("--base-url <url>", "Override API base URL (or pass a full endpoint URL)")
+    .option(
+      "--endpoint <path>",
+      "API path appended to base URL (e.g. chat/completions, api/chat, messages)",
+    )
     .option("--no-stream", "Disable token streaming (wait for full response)");
 }
 
@@ -80,11 +84,12 @@ function shouldShowInteractiveMenu(args: string[]): boolean {
 
 async function runAgentTask(opts: AgentCommandOptions, task: string): Promise<void> {
   const cwd = resolve(opts.cwd);
-  const { provider, model, baseUrl, apiKey } = resolveAgentConfig(opts);
+  const { provider, model, apiUrl, apiKey } = resolveAgentConfig(opts);
 
   log.info(`Provider: ${provider.label}`);
   log.info(`Workspace: ${cwd}`);
   log.info(`Model: ${model}`);
+  log.dim(`Endpoint: ${apiUrl}`);
 
   const stream = !opts.noStream;
   const onToken = stream ? createStreamHandler("\x1b[36magent\x1b[0m ") : undefined;
@@ -94,7 +99,7 @@ async function runAgentTask(opts: AgentCommandOptions, task: string): Promise<vo
     cwd,
     model,
     apiKey,
-    baseUrl,
+    apiUrl,
     provider,
     maxIterations: Number.parseInt(opts.maxIterations, 10),
     stream,
@@ -109,12 +114,13 @@ async function runAgentTask(opts: AgentCommandOptions, task: string): Promise<vo
 
 async function runChatSession(opts: AgentCommandOptions): Promise<void> {
   const cwd = resolve(opts.cwd);
-  const { provider, model, baseUrl, apiKey } = resolveAgentConfig(opts);
+  const { provider, model, apiUrl, apiKey } = resolveAgentConfig(opts);
   const rl = readline.createInterface({ input, output });
 
   log.info(`Provider: ${provider.label}`);
   log.info(`Chat mode — workspace: ${cwd}`);
   log.info(`Model: ${model}`);
+  log.dim(`Endpoint: ${apiUrl}`);
   log.info(`Type 'exit' or Ctrl+C to quit\n`);
 
   try {
@@ -134,7 +140,7 @@ async function runChatSession(opts: AgentCommandOptions): Promise<void> {
           cwd,
           model,
           apiKey,
-          baseUrl,
+          apiUrl,
           provider,
           maxIterations: Number.parseInt(opts.maxIterations, 10),
           stream,
@@ -156,14 +162,14 @@ async function runChatSession(opts: AgentCommandOptions): Promise<void> {
 }
 
 async function runPlainSession(opts: AgentCommandOptions): Promise<void> {
-  const { provider, model, baseUrl, apiKey } = resolveAgentConfig(opts);
+  const { provider, model, apiUrl, apiKey } = resolveAgentConfig(opts);
   const stream = !opts.noStream;
   const onToken = stream ? createStreamHandler("\nassistant> ") : undefined;
 
   await runPlainChat({
     model,
     apiKey,
-    baseUrl,
+    apiUrl,
     provider,
     stream,
     onToken,

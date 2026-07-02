@@ -1,8 +1,7 @@
 import * as readline from "node:readline/promises";
 import { stdin as input, stdout as output } from "node:process";
 import type { Message } from "../agent/types.ts";
-import { chat } from "../llm/client.ts";
-import type { Provider } from "../llm/providers.ts";
+import { chat, type Provider } from "../providers/index.ts";
 import { log } from "../utils/logger.ts";
 
 const PLAIN_SYSTEM_PROMPT =
@@ -11,14 +10,14 @@ const PLAIN_SYSTEM_PROMPT =
 export interface PlainChatOptions {
   model: string;
   apiKey: string;
-  baseUrl: string;
+  apiUrl: string;
   provider?: Provider;
   stream?: boolean;
   onToken?: (chunk: string) => void;
 }
 
 export async function runPlainChat(options: PlainChatOptions): Promise<void> {
-  const { model, apiKey, baseUrl, provider, stream = true, onToken } = options;
+  const { model, apiKey, apiUrl, provider, stream = true, onToken } = options;
   const messages: Message[] = [{ role: "system", content: PLAIN_SYSTEM_PROMPT }];
   const rl = readline.createInterface({ input, output });
 
@@ -43,7 +42,7 @@ export async function runPlainChat(options: PlainChatOptions): Promise<void> {
           messages,
           model,
           apiKey,
-          baseUrl,
+          apiUrl,
           provider,
           onToken: stream
             ? (chunk) => {

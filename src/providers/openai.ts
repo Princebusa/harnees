@@ -1,21 +1,5 @@
 import type { Message, Tool, ToolCall } from "../agent/types.ts";
-import { resolveChatUrl, type Provider } from "./providers.ts";
-
-interface ChatOptions {
-  messages: Message[];
-  tools?: Tool[];
-  model: string;
-  apiKey: string;
-  baseUrl: string;
-  provider?: Provider;
-  onToken?: (chunk: string) => void;
-}
-
-interface ChatResponse {
-  content: string;
-  toolCalls: ToolCall[];
-  finishReason: string;
-}
+import type { ChatOptions, ChatResponse, Provider } from "./types.ts";
 
 interface OpenAIToolCall {
   id: string;
@@ -78,21 +62,20 @@ function toOpenAITools(tools: Tool[]) {
   }));
 }
 
-function buildRequestHeaders(
-  apiKey: string,
-  provider?: Provider,
-): Record<string, string> {
-  return {
+function buildRequestHeaders(apiKey: string, provider?: Provider): Record<string, string> {
+  const headers: Record<string, string> = {
     "Content-Type": "application/json",
-    Authorization: `Bearer ${apiKey}`,
     ...provider?.extraHeaders,
   };
+
+  if (apiKey) {
+    headers.Authorization = `Bearer ${apiKey}`;
+  }
+
+  return headers;
 }
 
-function buildRequestBody(
-  options: ChatOptions,
-  stream: boolean,
-): Record<string, unknown> {
+function buildOpenAIRequestBody(options: ChatOptions, stream: boolean): Record<string, unknown> {
   const body: Record<string, unknown> = {
     model: options.model,
     messages: toOpenAIMessages(options.messages),
@@ -107,7 +90,7 @@ function buildRequestBody(
   return body;
 }
 
-function parseToolCalls(calls: OpenAIToolCall[]): ToolCall[] {
+function parseOpenAIToolCalls(calls: OpenAIToolCall[]): ToolCall[] {
   return calls.map((call) => {
     let parsed: Record<string, unknown> = {};
 
@@ -164,13 +147,13 @@ function toolCallsFromAccumulator(
     });
 }
 
-async function chatStream(options: ChatOptions): Promise<ChatResponse> {
-  const { messages, tools, model, apiKey, baseUrl, provider, onToken } = options;
+export async function chatOpenAIStream(options: ChatOptions): Promise<ChatResponse> {
+  const { apiKey, apiUrl, provider, onToken } = options;
 
-  const response = await fetch(resolveChatUrl(baseUrl), {
+  const response = await fetch(apiUrl, {
     method: "POST",
     headers: buildRequestHeaders(apiKey, provider),
-    body: JSON.stringify(buildRequestBody(options, true)),
+    body: JSON.stringify(buildOpenAIRequestBody(options, true)),
   });
 
   if (!response.ok) {
@@ -187,10 +170,7 @@ async function chatStream(options: ChatOptions): Promise<ChatResponse> {
   let buffer = "";
   let content = "";
   let finishReason = "";
-  const toolCallAcc = new Map<
-    number,
-    { id: string; name: string; arguments: string }
-  >();
+  const toolCallAcc = new Map<number, { id: string; name: string; arguments: string }>();
 
   while (true) {
     const { done, value } = await reader.read();
@@ -251,17 +231,13 @@ async function chatStream(options: ChatOptions): Promise<ChatResponse> {
   };
 }
 
-export async function chat(options: ChatOptions): Promise<ChatResponse> {
-  if (options.onToken) {
-    return chatStream(options);
-  }
+export async function chatOpenAI(options: ChatOptions): Promise<ChatResponse> {
+  const { apiKey, apiUrl, provider } = options;
 
-  const { messages, tools, model, apiKey, baseUrl, provider } = options;
-
-  const response = await fetch(resolveChatUrl(baseUrl), {
+  const response = await fetch(apiUrl, {
     method: "POST",
     headers: buildRequestHeaders(apiKey, provider),
-    body: JSON.stringify(buildRequestBody(options, false)),
+    body: JSON.stringify(buildOpenAIRequestBody(options, false)),
   });
 
   if (!response.ok) {
@@ -286,7 +262,7 @@ export async function chat(options: ChatOptions): Promise<ChatResponse> {
 
   return {
     content: choice.message.content ?? "",
-    toolCalls: parseToolCalls(choice.message.tool_calls ?? []),
+    toolCalls: parseOpenAIToolCalls(choice.message.tool_calls ?? []),
     finishReason: choice.finish_reason,
   };
 }
