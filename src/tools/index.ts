@@ -1,9 +1,20 @@
 import type { Tool } from "../agent/types.ts";
-import { createFilesystemTools } from "./filesystem.ts";
-import { createShellTool } from "./shell.ts";
+import { createReadFileTool } from "./read_file.ts";
+import { createWriteFileTool } from "./write_file.ts";
+import { createEditFileTool } from "./edit_file.ts";
+import { createListDirectoryTool } from "./list_directory.ts";
+import { createSearchFilesTool } from "./search_files.ts";
+import { createRunCommandTool } from "./run_command.ts";
 
 export function createTools(cwd: string): Tool[] {
-  return [...createFilesystemTools(cwd), createShellTool(cwd)];
+  return [
+    createReadFileTool(cwd),
+    createWriteFileTool(cwd),
+    createEditFileTool(cwd),
+    createListDirectoryTool(cwd),
+    createSearchFilesTool(cwd),
+    createRunCommandTool(cwd),
+  ];
 }
 
 export function getToolMap(tools: Tool[]): Map<string, Tool> {

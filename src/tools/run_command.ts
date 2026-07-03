@@ -1,18 +1,18 @@
 import type { Tool } from "../agent/types.ts";
 
-const BLOCKED = [
+const BLOCKED_PATTERNS = [
   "rm -rf /",
   "format ",
   "mkfs",
-  ":(){ :|:& };:",
+  ":(){ :|:&};:",
 ];
 
-export function createShellTool(cwd: string): Tool {
+export function createRunCommandTool(cwd: string): Tool {
   return {
     definition: {
       name: "run_command",
       description:
-        "Run a shell command in the workspace directory. Use for builds, tests, git status, etc.",
+        "Run a shell command in the workspace directory. Use for builds, tests, git status, linting, etc. Output is truncated at 8000 characters.",
       parameters: {
         type: "object",
         properties: {
@@ -27,7 +27,7 @@ export function createShellTool(cwd: string): Tool {
     execute: async (args) => {
       const command = String(args.command).trim();
 
-      for (const blocked of BLOCKED) {
+      for (const blocked of BLOCKED_PATTERNS) {
         if (command.includes(blocked)) {
           return `Error: blocked command pattern detected`;
         }
@@ -51,10 +51,9 @@ export function createShellTool(cwd: string): Tool {
         return `Exit code ${exitCode}\n${output || "(no output)"}`;
       }
 
-      const truncated =
-        output.length > 8000 ? `${output.slice(0, 8000)}\n... (truncated)` : output;
-
-      return truncated || "(command completed with no output)";
+      return output.length > 8000
+        ? `${output.slice(0, 8000)}\n... (truncated)`
+        : output || "(command completed with no output)";
     },
   };
 }
