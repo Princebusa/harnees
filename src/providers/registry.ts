@@ -3,7 +3,7 @@ import type { Provider, ResolvedProviderConfig, FreeModel } from "./types.ts";
 /** OpenRouter free-tier model. */
 export const OPENROUTER_FREE_MODELS: FreeModel[] = [
   {
-    id: "meta-llama/llama-3.3-70b-instruct:free",
+    id: "cohere/north-mini-code:free",
     name: "Llama 3.3 70B",
     note: "Strong general + coding; good default",
   },
@@ -16,7 +16,7 @@ export const PROVIDERS: Record<string, Provider> = {
     baseUrl: "https://openrouter.ai/api/v1",
     endpoint: "chat/completions",
     apiStyle: "openai-chat",
-    defaultModel: "meta-llama/llama-3.3-70b-instruct:free",
+    defaultModel: "cohere/north-mini-code:free",
     apiKeyEnvVars: ["OPENROUTER_API_KEY"],
     freeModels: OPENROUTER_FREE_MODELS,
     extraHeaders: {
