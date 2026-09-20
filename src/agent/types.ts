@@ -47,6 +47,10 @@ export interface AgentLoopOptions {
   apiUrl: string;
   provider?: Provider;
   systemPrompt?: string;
+  /** Prior user/assistant turns from the same CLI session (no tool messages). */
+  history?: Message[];
+  /** Approximate character budget for the full message list sent to the model. */
+  maxContextChars?: number;
   onIteration?: (iteration: number, message: Message) => void;
   onToolCall?: (name: string, args: Record<string, unknown>) => void;
   onToolResult?: (name: string, result: string) => void;

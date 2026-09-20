@@ -4,6 +4,8 @@ import { resolve } from "node:path";
 import * as readline from "node:readline/promises";
 import { stdin as input, stdout as output } from "node:process";
 import { runAgentLoop } from "./agent/loop.ts";
+import type { Message } from "./agent/types.ts";
+import { trimSessionHistory } from "./agent/memory.ts";
 import {
   DEFAULT_PROVIDER,
   OPENROUTER_FREE_MODELS,
@@ -122,6 +124,9 @@ async function runChatSession(opts: AgentCommandOptions): Promise<void> {
   log.info(`Model: ${model}`);
   log.dim(`Endpoint: ${apiUrl}`);
   log.info(`Type 'exit' or Ctrl+C to quit\n`);
+  log.dim("Chat history is kept across turns in this session.\n");
+
+  const sessionHistory: Message[] = [];
 
   try {
     while (true) {
@@ -142,10 +147,21 @@ async function runChatSession(opts: AgentCommandOptions): Promise<void> {
           apiKey,
           apiUrl,
           provider,
+          history: sessionHistory,
           maxIterations: Number.parseInt(opts.maxIterations, 10),
           stream,
           onToken,
         });
+
+        sessionHistory.push(
+          { role: "user", content: trimmed },
+          { role: "assistant", content: result.finalMessage },
+        );
+        sessionHistory.splice(
+          0,
+          sessionHistory.length,
+          ...trimSessionHistory(sessionHistory),
+        );
 
         if (!stream) {
           console.log("\nagent>", result.finalMessage, "\n");

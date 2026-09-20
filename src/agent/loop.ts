@@ -1,6 +1,12 @@
 import { chat } from "../providers/client.ts";
 import { createTools, getToolMap } from "../tools/index.ts";
 import { log } from "../utils/logger.ts";
+import {
+  appendWorkspaceMemory,
+  compactAgentMessages,
+  loadWorkspaceMemory,
+  trimSessionHistory,
+} from "./memory.ts";
 import type { AgentLoopOptions, AgentLoopResult, Message } from "./types.ts";
 
 const DEFAULT_SYSTEM_PROMPT = `You are a coding agent running in a CLI environment.
@@ -20,7 +26,9 @@ Rules:
 - Use write_file only for brand-new files or when a full rewrite is truly necessary.
 - Run relevant commands (tests, typecheck) when appropriate.
 - When the task is complete, reply with a concise summary of what you did.
-- Do not ask the user questions unless truly blocked.`;
+- Do not ask the user questions unless truly blocked.
+- In chat mode, prior turns in this session are included in context; use them to stay consistent.
+- For facts that should persist across future sessions, suggest updating .harnees/memory.md in the workspace.`;
 
 export async function runAgentLoop(
   options: AgentLoopOptions,
@@ -34,6 +42,8 @@ export async function runAgentLoop(
     apiUrl,
     provider,
     systemPrompt = DEFAULT_SYSTEM_PROMPT,
+    history = [],
+    maxContextChars,
     onIteration,
     onToolCall,
     onToolResult,
@@ -44,17 +54,36 @@ export async function runAgentLoop(
   const tools = createTools(cwd);
   const toolMap = getToolMap(tools);
 
+  const workspaceMemory = await loadWorkspaceMemory(cwd);
+  const sessionHistory = trimSessionHistory(history);
+  const systemContent = appendWorkspaceMemory(systemPrompt, workspaceMemory);
+
   const messages: Message[] = [
-    { role: "system", content: systemPrompt },
+    { role: "system", content: systemContent },
+    ...sessionHistory,
     { role: "user", content: task },
   ];
+  const taskMessageIndex = messages.length - 1;
+
+  if (sessionHistory.length > 0) {
+    log.dim(`Session memory: ${sessionHistory.length / 2} prior turn(s)`);
+  }
+  if (workspaceMemory) {
+    log.dim("Loaded workspace memory from project notes");
+  }
 
   for (let iteration = 1; iteration <= maxIterations; iteration++) {
     log.dim(`--- iteration ${iteration}/${maxIterations} ---`);
 
+    const contextMessages = compactAgentMessages(
+      messages,
+      taskMessageIndex,
+      maxContextChars,
+    );
+
     let streamed = false;
     const response = await chat({
-      messages,
+      messages: contextMessages,
       tools,
       model,
       apiKey,
